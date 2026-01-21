@@ -16,7 +16,7 @@ const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/miniprojec
 
 mongoose.connect(MONGO_URI)
     .then(() => console.log('✅ MongoDB Connected'))
-    .catch(err => console.log('⚠️ MongoDB not connected yet (Waiting for Member 4)'));
+    .catch(err => console.log('⚠️ MongoDB not connected yet (Waiting for Theertha)'));
 
 // 2. Routes
 // Note: If you haven't created the routes folder yet, comment this line out with //
