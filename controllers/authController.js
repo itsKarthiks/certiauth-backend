@@ -1,4 +1,4 @@
-const UserModel = require('../models/UserModel.js');
+const supabase = require('../config/supabase.js');
 const bcrypt = require('bcryptjs');
 const generateToken = require('../utils/generateToken.js');
 
@@ -6,31 +6,24 @@ const generateToken = require('../utils/generateToken.js');
  * registerUser
  * 
  * This function handles the registration of new admin or issuer accounts. 
- * Here is the step-by-step breakdown:
- * 
- * 1. We extract the user's name, email, and plain-text password from the request body.
- * 2. We check if a user with this email already exists in our database.
- * 3. We use `bcryptjs` to create a "salt" (a random string of characters).
- * 4. We combine the salt with the plain-text password and hash it. 
- * 
- * SECURITY NOTE: WHY BCRYPT?
- * We never, ever save plain-text passwords in our database. If our database 
- * gets compromised by a hacker, they would instantly see everyone's password. 
- * Instead, bcrypt turns a password like "password123" into a scrambled, irreversible 
- * mess like "$2a$10$vI8aWB...". Even if hackers steal this hash, they can't reverse 
- * it back into "password123".
- * 
- * 5. We create the new user record in the database using the hashed password.
- * 6. Finally, we return a success response containing the user's details and 
- *    their "VIP pass" (the generated JWT token) so they are immediately logged in.
  */
 const registerUser = async (req, res) => {
     try {
-        const { name, email, password } = req.body;
+        const { name, email, password, role = 'admin' } = req.body;
 
         // Check if the user already exists
-        const userExists = await UserModel.findOne({ email });
-        if (userExists) {
+        // SUPABASE DIFFERENCE: We use .select().eq() instead of Mongoose's findOne(). 
+        // Supabase returns a 'data' array and an 'error' object instead of a resolved document directly.
+        const { data: existingUsers, error: selectError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('email', email);
+
+        if (selectError) {
+            throw selectError;
+        }
+
+        if (existingUsers && existingUsers.length > 0) {
             return res.status(400).json({ message: 'User already exists' });
         }
 
@@ -39,19 +32,25 @@ const registerUser = async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, salt);
 
         // Save the new user into the database
-        const user = await UserModel.create({
-            name,
-            email,
-            password: hashedPassword
-        });
+        // SUPABASE DIFFERENCE: Data is inserted as an array of objects. We chain .select()
+        // at the end so Supabase returns the completely inserted rows (including generated IDs).
+        const { data: newUsers, error: insertError } = await supabase
+            .from('users')
+            .insert([{ name, email, password: hashedPassword, role }])
+            .select();
 
-        if (user) {
-            // Return success with the new token
+        if (insertError) {
+            throw insertError;
+        }
+
+        if (newUsers && newUsers.length > 0) {
+            const user = newUsers[0];
+            // Return success with the new token. We use user.id instead of user._id.
             res.status(201).json({
-                _id: user._id,
+                _id: user.id,
                 name: user.name,
                 email: user.email,
-                token: generateToken(user._id)
+                token: generateToken(user.id)
             });
         } else {
             res.status(400).json({ message: 'Invalid user data received' });
@@ -65,34 +64,37 @@ const registerUser = async (req, res) => {
  * loginUser
  * 
  * This function handles authenticating returning admins/issuers.
- * 
- * 1. Extract the email and the submitted plain-text password from the request.
- * 2. Look up the user by their email in the database.
- * 3. Use `bcrypt.compare` to take their submitted plain password, hash it, and 
- *    see if it matches the stored scrambled hash in the database.
- * 4. If it matches, we issue them a brand new JWT token so they can access protected routes.
- * 5. If it fails, we reject them. 
  */
 const loginUser = async (req, res) => {
     try {
         const { email, password } = req.body;
 
         // Find the user by email
-        const user = await UserModel.findOne({ email });
+        // SUPABASE DIFFERENCE: Adding .single() ensures we get exactly one object back in 'data' 
+        // instead of an array. If zero rows match, Supabase sets an error (code PGRST116).
+        const { data: user, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('email', email)
+            .single();
 
         // Check if user exists AND if the password matches the hash
         if (user && (await bcrypt.compare(password, user.password))) {
             // Successful login, return user details (excluding password) + token
             res.json({
-                _id: user._id,
+                _id: user.id,
                 name: user.name,
                 email: user.email,
-                token: generateToken(user._id)
+                token: generateToken(user.id)
             });
         } else {
             res.status(401).json({ message: 'Invalid email or password' });
         }
     } catch (error) {
+        // If `.single()` finds nothing, it throws an error we can catch to return 401
+        if (error.code === 'PGRST116') {
+            return res.status(401).json({ message: 'Invalid email or password' });
+        }
         res.status(500).json({ message: 'Server error during login', error: error.message });
     }
 };

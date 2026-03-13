@@ -9,9 +9,6 @@ const express = require('express');
 // It's a security feature that decides which outside websites are allowed to talk to our API.
 const cors = require('cors');
 
-// Import our custom database connection logic from the config folder.
-const connectDB = require('./config/db.js');
-
 // Import our API Routes
 const authRoutes = require('./routes/authRoutes.js');
 const certificateRoutes = require('./routes/certificateRoutes.js');
@@ -21,9 +18,6 @@ const errorHandler = require('./middleware/errorHandler.js');
 
 // Initialize the Express application. The 'app' object represents our server.
 const app = express();
-
-// Call the function to attempt connection to our MongoDB database.
-connectDB();
 
 // Apply the CORS middleware. By using this without options, we are currently allowing
 // any other domain to make requests to our API. Useful for development!

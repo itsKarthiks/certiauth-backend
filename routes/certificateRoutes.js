@@ -1,6 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const { issueCertificate, verifyCertificate } = require('../controllers/certificateController.js');
+const {
+    issueCertificate,
+    verifyCertificate,
+    getDashboardStats,
+    getAllCertificates,
+    toggleCertificateStatus,
+    exportAllCertificates,
+    getRecentActivity,
+    bulkIssueCertificates
+} = require('../controllers/certificateController.js');
 const { protect, admin } = require('../middleware/authMiddleware.js');
 
 /**
@@ -17,6 +26,7 @@ const { protect, admin } = require('../middleware/authMiddleware.js');
  *    function to actually generate the digital certificate.
  */
 router.post('/issue', protect, admin, issueCertificate);
+router.post('/bulk-issue', protect, admin, bulkIssueCertificates);
 
 /**
  * WHY THIS ROUTE IS WIDE OPEN (No Middleware):
@@ -30,6 +40,32 @@ router.post('/issue', protect, admin, issueCertificate);
  * relies on our internal database logic in 'verifyCertificate', not on locked doors.
  */
 router.get('/verify/:certificateId', verifyCertificate);
+
+/**
+ * ADMIN STATS ENDPOINT:
+ * 
+ * Fetches the counts for total issued, total revoked, and total verifications.
+ * Locked behind admin authentication.
+ */
+router.get('/stats', protect, admin, getDashboardStats);
+
+/**
+ * CERTIFICATE MANAGEMENT ROUTES:
+ * 
+ * 'getAllCertificates' handles the paginated table with search/filters.
+ * 'toggleCertificateStatus' allows admins to revoke or restore certificates.
+ */
+router.get('/all', protect, admin, getAllCertificates);
+router.patch('/:id/toggle-status', protect, admin, toggleCertificateStatus);
+
+/**
+ * UTILITY & ACTIVITY ROUTES:
+ * 
+ * 'export' provides raw data for CSV exports.
+ * 'activity' provides the feed for recent verification successes.
+ */
+router.get('/export', protect, admin, exportAllCertificates);
+router.get('/activity', protect, admin, getRecentActivity);
 
 // Export the router cleanly to be used by the main server
 module.exports = router;
