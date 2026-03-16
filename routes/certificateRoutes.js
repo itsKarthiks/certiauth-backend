@@ -1,16 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const {
-    issueCertificate,
-    verifyCertificate,
-    getDashboardStats,
-    getAllCertificates,
-    toggleCertificateStatus,
-    exportAllCertificates,
-    getRecentActivity,
-    bulkIssueCertificates
-} = require('../controllers/certificateController.js');
-const { protect, admin } = require('../middleware/authMiddleware.js');
+const { issueCertificate, verifyCertificate, getDashboardStats, getAllCertificates, toggleCertificateStatus, exportAllCertificates, getRecentActivity, bulkIssueCertificates } = require('../controllers/certificateController.js');
+const { protect } = require('../middleware/authMiddleware.js');
 
 /**
  * WHY THIS ROUTE HAS MIDDLEWARE ('protect', 'admin'):
@@ -25,8 +16,8 @@ const { protect, admin } = require('../middleware/authMiddleware.js');
  * 3. Only if BOTH bouncers give the green light do we finally run the 'issueCertificate' 
  *    function to actually generate the digital certificate.
  */
-router.post('/issue', protect, admin, issueCertificate);
-router.post('/bulk-issue', protect, admin, bulkIssueCertificates);
+router.post('/issue', protect, issueCertificate);
+router.post('/bulk-issue', protect, bulkIssueCertificates);
 
 /**
  * WHY THIS ROUTE IS WIDE OPEN (No Middleware):
@@ -47,7 +38,7 @@ router.get('/verify/:certificateId', verifyCertificate);
  * Fetches the counts for total issued, total revoked, and total verifications.
  * Locked behind admin authentication.
  */
-router.get('/stats', protect, admin, getDashboardStats);
+router.get('/stats', protect, getDashboardStats);
 
 /**
  * CERTIFICATE MANAGEMENT ROUTES:
@@ -55,8 +46,8 @@ router.get('/stats', protect, admin, getDashboardStats);
  * 'getAllCertificates' handles the paginated table with search/filters.
  * 'toggleCertificateStatus' allows admins to revoke or restore certificates.
  */
-router.get('/all', protect, admin, getAllCertificates);
-router.patch('/:id/toggle-status', protect, admin, toggleCertificateStatus);
+router.get('/all', protect, getAllCertificates);
+router.patch('/:id/toggle-status', protect, toggleCertificateStatus);
 
 /**
  * UTILITY & ACTIVITY ROUTES:
@@ -64,8 +55,8 @@ router.patch('/:id/toggle-status', protect, admin, toggleCertificateStatus);
  * 'export' provides raw data for CSV exports.
  * 'activity' provides the feed for recent verification successes.
  */
-router.get('/export', protect, admin, exportAllCertificates);
-router.get('/activity', protect, admin, getRecentActivity);
+router.get('/export', protect, exportAllCertificates);
+router.get('/activity', protect, getRecentActivity);
 
 // Export the router cleanly to be used by the main server
 module.exports = router;

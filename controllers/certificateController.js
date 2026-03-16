@@ -1,6 +1,9 @@
 const supabase = require('../config/supabase.js');
 const { v4: uuidv4 } = require('uuid');
-const generateCertificateHash = require('../utils/hashGenerator.js');
+const { signCertificateData, generateUniversityKeys } = require('../utils/cryptoUtils');
+
+// UNIVERSITY KEY REPOSITORY (In-Memory for Demo)
+const { publicKey, privateKey } = generateUniversityKeys();
 
 /**
  * issueCertificate (Admin Only Action)
@@ -13,45 +16,58 @@ const generateCertificateHash = require('../utils/hashGenerator.js');
  * 4. We save both the public `certificateId` and the hidden `digitalSignature` into our Postgres database.
  */
 const issueCertificate = async (req, res) => {
+    console.log("Incoming Request Body:", req.body);
     try {
-        const { student_name, student_id, program, cgpa } = req.body;
+        const { registrationNumber, name, course, cgpa, correctionId } = req.body;
 
-        if (!student_name || !student_id || !program || !cgpa) {
-            return res.status(400).json({ message: 'Missing required fields' });
+        // Relaxed validation: Only registrationNumber, name, and cgpa are strictly required
+        if (!registrationNumber || !name || !cgpa) {
+            return res.status(400).json({ message: 'Missing required fields (registrationNumber, name, cgpa)' });
         }
 
-        // Generate the public UUID link
-        const certificateId = uuidv4();
+        // Default missing values
+        const finalCourse = course || "N/A";
 
-        // Generate the deeply hidden cryptographic signature
-        const digitalSignature = generateCertificateHash(req.body);
+        // THEERTHA + MIHIRIMA SECURE SIGNING ENGINE
+        const { signature } = signCertificateData({
+            registrationNumber,
+            name,
+            course: finalCourse,
+            cgpa
+        }, privateKey);
 
-        // Save the brand new certificate into the database
-        // SUPABASE DIFFERENCE: We insert into a relational Postgres table using .insert() wrapped in an array.
-        // We explicitly map our camelCase JavaScript variables to the snake_case columns in our DB
-        // (e.g., student_name, student_id, digital_signature). We append .select() to get the row returned.
+        // Simplify to direct upsert as registration_number is now the PK
         const { data, error } = await supabase
             .from('certificates')
-            .insert([{
-                certificate_id: certificateId,
-                student_name,
-                student_id,
-                program,
+            .upsert({
+                registration_number: registrationNumber,
+                student_name: name,
+                course: finalCourse,
                 cgpa,
-                digital_signature: digitalSignature
-            }])
+                digital_signature: signature
+            })
             .select();
 
         if (error) {
+            console.error("Supabase Operation Error:", error.message);
             throw error;
+        }
+
+        // Mark correction request as resolved if it exists
+        if (correctionId) {
+            await supabase
+                .from('correction_requests')
+                .update({ status: 'Resolved' })
+                .eq('id', correctionId);
         }
 
         const certificate = data && data.length > 0 ? data[0] : null;
 
-        // Return success response to the frontend
+        // Return success response to the frontend with the Public Key for QR generation
         res.status(201).json({
-            message: 'Certificate successfully issued',
-            certificate
+            message: 'Certificate successfully issued and signed',
+            certificate,
+            publicKey: publicKey
         });
     } catch (error) {
         res.status(500).json({ message: 'Failed to issue certificate', error: error.message });
@@ -65,15 +81,13 @@ const issueCertificate = async (req, res) => {
  */
 const verifyCertificate = async (req, res) => {
     try {
-        const { certificateId } = req.params;
+        const { certificateId } = req.params; // This will now represent registration_number
 
-        // Look up the certificate in the database using the public UUID
-        // SUPABASE DIFFERENCE: Using .select('*').eq(...).single() closely replaces Mongoose's .findOne()
-        // by making sure we retrieve exactly one row (or triggering an error if zero rows).
+        // Look up the certificate in the database using the registration_number
         const { data: certificate, error } = await supabase
             .from('certificates')
             .select('*')
-            .or(`certificate_id.eq.${req.params.certificateId},student_id.eq.${req.params.certificateId}`)
+            .eq('registration_number', certificateId)
             .single();
 
         // If not found (error code PGRST116 signifies no rows returned from .single()), it is forged.
@@ -85,27 +99,25 @@ const verifyCertificate = async (req, res) => {
         }
 
         // If the university has revoked this particular certificate
-        // Checking `is_revoked` instead of `isRevoked` to match Postgres schema naming pattern.
         if (certificate.is_revoked === true) {
             return res.status(400).json({ message: 'This certificate has been revoked' });
         }
 
         // It is fully valid! We return the student details.
-        const { student_name, student_id, program: certProgram, cgpa: certCgpa, issue_date } = certificate;
+        const { student_name, registration_number, course, cgpa, created_at, digital_signature } = certificate;
 
         // LOGGING VERIFICATION EVENT
-        // We record this successful verification event in our history table
-        await supabase.from('verification_logs').insert([{ certificate_id: certificate.certificate_id }]);
+        await supabase.from('verification_logs').insert([{ registration_number: certificate.registration_number }]);
 
         res.status(200).json({
             message: 'Certificate is valid and authentic',
             data: {
-                certificateId: certificate.certificate_id,
+                registrationNumber: registration_number,
                 studentName: student_name,
-                studentId: student_id,
-                program: certProgram,
-                cgpa: certCgpa,
-                issueDate: issue_date
+                course: course,
+                cgpa: cgpa,
+                issueDate: created_at,
+                digitalSignature: digital_signature
             }
         });
 
@@ -180,7 +192,7 @@ const getAllCertificates = async (req, res) => {
 
         // Apply search logic (checks across multiple columns)
         if (search) {
-            query = query.or(`student_id.ilike.%${search}%,student_name.ilike.%${search}%,program.ilike.%${search}%`);
+            query = query.or(`registration_number.ilike.%${search}%,student_name.ilike.%${search}%,course.ilike.%${search}%`);
         }
 
         // Apply status filtering
@@ -218,11 +230,11 @@ const toggleCertificateStatus = async (req, res) => {
     try {
         const { id } = req.params;
 
-        // First, fetch the current current state of the certificate
+        // First, fetch the current state of the certificate
         const { data: certificate, error: fetchError } = await supabase
             .from('certificates')
             .select('is_revoked')
-            .eq('certificate_id', id)
+            .eq('registration_number', id)
             .single();
 
         if (fetchError || !certificate) {
@@ -235,7 +247,7 @@ const toggleCertificateStatus = async (req, res) => {
         const { error: updateError } = await supabase
             .from('certificates')
             .update({ is_revoked: newRevokedStatus })
-            .eq('certificate_id', id);
+            .eq('registration_number', id);
 
         if (updateError) throw updateError;
 
@@ -258,7 +270,7 @@ const exportAllCertificates = async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('certificates')
-            .select('certificate_id, student_id, student_name, program, cgpa, issue_date, is_revoked')
+            .select('registration_number, student_name, course, cgpa, created_at, is_revoked')
             .order('created_at', { ascending: false });
 
         if (error) throw error;
@@ -311,31 +323,36 @@ const bulkIssueCertificates = async (req, res) => {
         const preparedRows = students.map(student => {
             const certificateId = uuidv4();
 
-            // We pass the individual student object to our existing hash utility
-            const digitalSignature = generateCertificateHash({
-                student_name: student.student_name,
-                student_id: student.student_id,
-                program: student.program,
+            // RSA SECURE SIGNING
+            const { signature } = signCertificateData({
+                registrationNumber: student.registration_number || student.student_id,
+                name: student.student_name,
+                course: student.program,
                 cgpa: student.cgpa
-            });
+            }, privateKey);
 
             return {
-                certificate_id: certificateId,
+                registration_number: student.registration_number || student.student_id,
                 student_name: student.student_name,
-                student_id: student.student_id,
-                program: student.program,
+                course: student.program,
                 cgpa: student.cgpa,
-                digital_signature: digitalSignature
+                digital_signature: signature
             };
         });
 
-        // Supabase .insert() handles arrays as a bulk operation by default
+        console.log("Upserting bulk data:", preparedRows);
+
+        // Use UPSERT for bulk operation to handle re-issues
         const { data, error } = await supabase
             .from('certificates')
-            .insert(preparedRows)
+            .upsert(preparedRows, { 
+                onConflict: 'registration_number',
+                ignoreDuplicates: false
+            })
             .select();
 
         if (error) {
+            console.error("Supabase Bulk Upsert Error:", error.message);
             throw error;
         }
 
