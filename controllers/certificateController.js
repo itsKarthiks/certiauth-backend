@@ -308,8 +308,8 @@ const getRecentActivity = async (req, res) => {
 /**
  * bulkIssueCertificates (Admin Only Action)
  * 
- * Takes an array of student objects and issues all of them in a single
- * database transaction for maximum performance.
+ * Takes an array of student objects and issues new ones.
+ * Skips existing registration numbers to prevent silent overwrites.
  */
 const bulkIssueCertificates = async (req, res) => {
     try {
@@ -319,10 +319,38 @@ const bulkIssueCertificates = async (req, res) => {
             return res.status(400).json({ message: "No student data provided" });
         }
 
-        // Map and prepare all rows for the bulk insert
-        const preparedRows = students.map(student => {
-            const certificateId = uuidv4();
+        // Extract all incoming registration numbers
+        const incomingRegNos = students.map(s => s.registration_number || s.student_id);
 
+        // Query Supabase for existing records
+        const { data: existingRecords, error: fetchError } = await supabase
+            .from('certificates')
+            .select('registration_number')
+            .in('registration_number', incomingRegNos);
+
+        if (fetchError) {
+            console.error("Supabase Fetch Error:", fetchError.message);
+            throw fetchError;
+        }
+
+        // Map existing records into an array of strings
+        const existingRegNos = existingRecords.map(record => record.registration_number);
+
+        // Split students into newStudents and skippedStudents
+        const newStudents = [];
+        const skippedStudents = [];
+
+        students.forEach(student => {
+            const regNo = student.registration_number || student.student_id;
+            if (existingRegNos.includes(regNo)) {
+                skippedStudents.push(student);
+            } else {
+                newStudents.push(student);
+            }
+        });
+
+        // Run existing cryptographic hashing/signing logic ONLY on the newStudents array
+        const preparedRows = newStudents.map(student => {
             // RSA SECURE SIGNING
             const { signature } = signCertificateData({
                 registrationNumber: student.registration_number || student.student_id,
@@ -340,25 +368,24 @@ const bulkIssueCertificates = async (req, res) => {
             };
         });
 
-        console.log("Upserting bulk data:", preparedRows);
+        console.log(`Inserting ${preparedRows.length} new certificates.`);
 
-        // Use UPSERT for bulk operation to handle re-issues
-        const { data, error } = await supabase
-            .from('certificates')
-            .upsert(preparedRows, { 
-                onConflict: 'registration_number',
-                ignoreDuplicates: false
-            })
-            .select();
+        // Insert the signed newStudents into Supabase
+        if (preparedRows.length > 0) {
+            const { error: insertError } = await supabase
+                .from('certificates')
+                .insert(preparedRows);
 
-        if (error) {
-            console.error("Supabase Bulk Upsert Error:", error.message);
-            throw error;
+            if (insertError) {
+                console.error("Supabase Bulk Insert Error:", insertError.message);
+                throw insertError;
+            }
         }
 
-        res.status(201).json({
-            message: `Successfully issued ${preparedRows.length} certificates`,
-            count: preparedRows.length
+        res.status(200).json({
+            message: "Bulk issuance cycle complete.",
+            processedCount: newStudents.length,
+            skipped: skippedStudents.map(s => s.registration_number)
         });
 
     } catch (error) {
