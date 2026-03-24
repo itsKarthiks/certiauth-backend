@@ -9,21 +9,6 @@ A secure, RESTful backend service designed to issue, store, and verify digital c
 * **Cryptography:** Built-in Node `crypto` module (SHA-256, RSA)
 * **Architecture:** MVC (Model-View-Controller)
 
-## 📂 Directory Structure
-
-```text
-├── src/
-│   ├── config/           # Database and environment configurations
-│   ├── controllers/      # Core business logic (issue, verify)
-│   ├── models/           # Database schemas/models
-│   ├── routes/           # Express API route definitions
-│   ├── utils/            
-│   │   └── crypto.js     # RSA and SHA-256 implementation
-│   └── app.js            # Express app initialization
-├── keys/                 # RSA .pem files (excluded from git)
-├── .env                  # Environment variables
-├── package.json
-└── README.md
 
 ## 🔌 Core API Endpoints
 
@@ -44,6 +29,7 @@ A secure, RESTful backend service designed to issue, store, and verify digital c
 git clone <your-repository-url>
 cd server-repo
 npm install
+```
 
 ### 4. Run the Server
 ```bash
