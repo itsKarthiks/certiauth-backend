@@ -2,27 +2,33 @@
 
 A secure, RESTful backend service designed to issue, store, and verify digital certificates. This system ensures data integrity and authenticity by leveraging SHA-256 hashing and RSA asymmetric cryptography alongside standard CRUD operations and ACID-compliant database transactions.
 
-## 🏗 System Architecture
+## 🛠 Tech Stack
 
-The following diagram illustrates the data flow for the core certificate issuance and verification processes.
+* **Runtime:** Node.js
+* **Framework:** Express.js
+* **Cryptography:** Built-in Node `crypto` module (SHA-256, RSA)
+* **Architecture:** MVC (Model-View-Controller)
 
-```mermaid
-graph TD
-    Client[Client Application] -->|HTTP POST /issue| Router[Express Router]
-    Router --> Controller[Certificate Controller]
-    
-    subgraph Cryptographic Layer
-        Controller -->|Payload| Hasher[SHA-256 Hashing]
-        Hasher -->|Hash| Signer[RSA Signing with Private Key]
-    end
+## 📂 Directory Structure
 
-    subgraph Database Layer
-        Signer -->|Signed Certificate Data| DB[(Database)]
-    end
+```text
+├── src/
+│   ├── config/           # Database and environment configurations
+│   ├── controllers/      # Core business logic (issue, verify)
+│   ├── models/           # Database schemas/models
+│   ├── routes/           # Express API route definitions
+│   ├── utils/            
+│   │   └── crypto.js     # RSA and SHA-256 implementation
+│   └── app.js            # Express app initialization
+├── keys/                 # RSA .pem files (excluded from git)
+├── .env                  # Environment variables
+├── package.json
+└── README.md
 
-    Client -->|HTTP POST /verify| VerifyRouter[Express Router]
-    VerifyRouter --> VerifyController[Verification Controller]
-    VerifyController -->|Fetch Public Key| RSA[RSA Verification]
-    RSA -->|Compare Hashes| Result{Valid?}
-    Result -->|Yes| Success[Return 200 OK]
-    Result -->|No| Reject[Return 400 Invalid]
+## 🔌 Core API Endpoints
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/certificates/issue` | Accepts student/course data, hashes it (SHA-256), signs it (RSA), and stores it. |
+| `POST` | `/api/certificates/verify` | Accepts a certificate payload and signature, verifies authenticity using the Public Key. |
+| `GET` | `/api/certificates/:id` | Retrieves a specific certificate's details via standard CRUD. |
