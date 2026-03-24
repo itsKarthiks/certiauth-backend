@@ -32,3 +32,23 @@ A secure, RESTful backend service designed to issue, store, and verify digital c
 | `POST` | `/api/certificates/issue` | Accepts student/course data, hashes it (SHA-256), signs it (RSA), and stores it. |
 | `POST` | `/api/certificates/verify` | Accepts a certificate payload and signature, verifies authenticity using the Public Key. |
 | `GET` | `/api/certificates/:id` | Retrieves a specific certificate's details via standard CRUD. |
+
+## 🚀 Getting Started
+
+### Prerequisites
+* Node.js (v18+ recommended)
+* npm or yarn
+
+### 1. Clone & Install
+```bash
+git clone <your-repository-url>
+cd server-repo
+npm install
+
+### 4. Run the Server
+```bash
+# For development with auto-restart
+npm run dev
+
+# For production
+npm start
